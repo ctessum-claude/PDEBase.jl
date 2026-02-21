@@ -6,11 +6,11 @@ function cardinalize_eqs!(pdesys)
     return
 end
 
-function SciMLBase.symbolic_discretize(pdesys::PDESystem, discretization::AbstractDiscretization)
+function SciMLBase.symbolic_discretize(pdesys::PDESystem, discretization::AbstractDiscretization; kwargs...)
     t = get_time(discretization)
-    pdesys, complexmap = handle_complex(pdesys)
+    pdesys, complexmap = handle_complex(pdesys; kwargs...)
     cardinalize_eqs!(pdesys)
-    pdesys, replaced_vars = make_pdesys_compatible(pdesys)
+    pdesys, replaced_vars = make_pdesys_compatible(pdesys; kwargs...)
 
     ############################
     # System Parsing and Transformation
@@ -96,5 +96,5 @@ function SciMLBase.symbolic_discretize(pdesys::PDESystem, discretization::Abstra
     # Pass u0 to generate_metadata for storage (needed for MTK v11 compatibility)
     metadata = generate_metadata(s, discretization, pdesys, boundarymap, complexmap, u0)
 
-    return generate_system(disc_state, s, u0, tspan, metadata, discretization)
+    return generate_system(disc_state, s, u0, tspan, metadata, discretization; kwargs...)
 end

@@ -53,7 +53,7 @@ function apply_lhs_rhs(f, eqs)
     end
 end
 
-function make_pdesys_compatible(pdesys::PDESystem)
+function make_pdesys_compatible(pdesys::PDESystem; checks = true, kwargs...)
     eqs = get_eqs(pdesys)
     bcs = get_bcs(pdesys)
     dvs = get_dvs(pdesys)
@@ -79,7 +79,7 @@ function make_pdesys_compatible(pdesys::PDESystem)
             connector_type = get_connector_type(pdesys), metadata = get_metadata(pdesys),
             analytic = getfield(pdesys, :analytic), analytic_func = getfield(pdesys, :analytic_func),
             gui_metadata = get_gui_metadata(pdesys),
-            name = getfield(pdesys, :name)
+            name = getfield(pdesys, :name), checks = checks
         ),
         replaced_vars
 end
@@ -158,7 +158,7 @@ function split_complex_bc(eq, redvmaps, imdvmaps)
     end
 end
 
-function handle_complex(pdesys)
+function handle_complex(pdesys; checks = true, kwargs...)
     eqs = get_eqs(pdesys)
     bcs = get_bcs(pdesys)
     # In MTK v11, complex equations may already be nested Vector{Equation}
@@ -237,7 +237,7 @@ function handle_complex(pdesys)
         pdesys = PDESystem(
             eqs, bcs, get_domain(pdesys), get_ivs(pdesys), dvs,
             get_ps(pdesys), name = getfield(pdesys, :name),
-            initial_conditions = pdesys.initial_conditions
+            initial_conditions = pdesys.initial_conditions, checks = checks
         )
         return pdesys, dvmaps
     else
@@ -248,7 +248,7 @@ function handle_complex(pdesys)
         pdesys = PDESystem(
             eqs_flat, bcs_flat, get_domain(pdesys), get_ivs(pdesys), get_dvs(pdesys),
             get_ps(pdesys), name = getfield(pdesys, :name),
-            initial_conditions = pdesys.initial_conditions
+            initial_conditions = pdesys.initial_conditions, checks = checks
         )
         return pdesys, dvmaps
     end

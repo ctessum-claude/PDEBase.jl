@@ -9,7 +9,8 @@ end
 
 function generate_system(
         disc_state::EquationState, s, u0, tspan, metadata,
-        disc::AbstractEquationSystemDiscretization
+        disc::AbstractEquationSystemDiscretization;
+        checks = true, kwargs...
     )
     discvars = get_discvars(s)
     t = get_time(disc)
@@ -26,11 +27,7 @@ function generate_system(
     ps = get_ps(pdesys)
     ps = ps === nothing || ps === SciMLBase.NullParameters() ? Num[] : ps
     # Finalize
-    # if haskey(metadata.disc.kwargs, :checks)
-    #     checks = metadata.disc.kwargs[:checks]
-    # else
-    checks = true
-    # end
+    # checks is now accepted as a keyword argument
     return try
         if t === nothing
             # At the time of writing, NonlinearProblems require that the system of equations be in this form:
@@ -69,7 +66,7 @@ function SciMLBase.discretize(
         discretization::AbstractEquationSystemDiscretization;
         analytic = nothing, kwargs...
     )
-    sys, tspan = SciMLBase.symbolic_discretize(pdesys, discretization)
+    sys, tspan = SciMLBase.symbolic_discretize(pdesys, discretization; kwargs...)
     return try
         simpsys = mtkcompile(sys)
         if tspan === nothing
