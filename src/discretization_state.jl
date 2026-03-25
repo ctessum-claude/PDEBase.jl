@@ -66,6 +66,98 @@ function generate_system(
     end
 end
 
+"""
+    to_explicit_ode(sys)
+
+Convert a time-dependent System from implicit ODE + algebraic form to explicit ODE form.
+This is a lightweight alternative to `mtkcompile` for systems that are already structurally
+simple (e.g., PDE discretizations from MethodOfLines).
+
+Steps:
+1. Identify algebraic equations (no time derivative): `u_k ~ expr`
+2. Solve them for the constrained variable
+3. Substitute into remaining ODE equations
+4. Rearrange ODE equations from `D(u_k) + f(u) ~ 0` to `D(u_k) ~ -f(u)`
+5. Return a new System without the algebraic variables
+"""
+function to_explicit_ode(sys)
+    eqs = ModelingToolkit.equations(sys)
+    dvs = ModelingToolkit.unknowns(sys)
+    t = ModelingToolkit.get_iv(sys)
+    D = Differential(t)
+
+    # Classify equations: ODE vs algebraic
+    ode_eqs = Equation[]
+    algebraic_subs = Dict{Any,Any}()
+    algebraic_dvs = Set{Any}()
+    for eq in eqs
+        full_expr = eq.lhs - eq.rhs
+        # Check if this equation has a time derivative
+        has_deriv = false
+        deriv_var = nothing
+        for dv in dvs
+            D_dv = unwrap(D(dv))
+            if Symbolics.hasnode(x -> isequal(x, D_dv), unwrap(full_expr))
+                has_deriv = true
+                deriv_var = dv
+                break
+            end
+        end
+        if has_deriv
+            push!(ode_eqs, eq)
+        else
+            # Algebraic equation: solve for the variable
+            for dv in dvs
+                dv_uw = unwrap(dv)
+                if Symbolics.hasnode(x -> isequal(x, dv_uw), unwrap(full_expr))
+                    # Simple case: u_k ~ expr or expr ~ u_k
+                    rhs_val = solve_for(eq, dv)
+                    algebraic_subs[dv] = rhs_val
+                    push!(algebraic_dvs, dv)
+                    break
+                end
+            end
+        end
+    end
+
+    # Substitute algebraic variables into ODE equations
+    if !isempty(algebraic_subs)
+        ode_eqs = map(ode_eqs) do eq
+            lhs = Symbolics.substitute(eq.lhs, algebraic_subs)
+            rhs = Symbolics.substitute(eq.rhs, algebraic_subs)
+            lhs ~ rhs
+        end
+    end
+
+    # Rearrange ODE equations to explicit form: D(u_k) ~ rhs
+    explicit_eqs = map(ode_eqs) do eq
+        full_expr = eq.lhs - eq.rhs
+        for dv in dvs
+            dv in algebraic_dvs && continue
+            D_dv = D(dv)
+            D_dv_uw = unwrap(D_dv)
+            if Symbolics.hasnode(x -> isequal(x, D_dv_uw), unwrap(full_expr))
+                rhs_val = solve_for(full_expr ~ 0, D_dv)
+                return D_dv ~ -rhs_val
+            end
+        end
+        return eq  # fallback: return as-is
+    end
+
+    # Remove algebraic variables from unknowns
+    remaining_dvs = filter(dv -> !(dv in algebraic_dvs), dvs)
+
+    # Reconstruct system preserving metadata
+    ps = ModelingToolkit.parameters(sys)
+    ic = ModelingToolkit.initial_conditions(sys)
+    name = getfield(sys, :name)
+    mol_metadata = getmetadata(sys, ProblemTypeCtx, nothing)
+    meta = mol_metadata !== nothing ? [ProblemTypeCtx => mol_metadata] : nothing
+
+    return System(explicit_eqs, t, remaining_dvs, ps;
+                  initial_conditions=ic, name=name, metadata=meta, checks=false)
+end
+
 function SciMLBase.discretize(
         pdesys::PDESystem,
         discretization::AbstractEquationSystemDiscretization;
@@ -73,7 +165,11 @@ function SciMLBase.discretize(
     )
     sys, tspan = SciMLBase.symbolic_discretize(pdesys, discretization; checks=checks)
     return try
-        simpsys = simplify ? mtkcompile(sys) : complete(sys)
+        simpsys = if simplify
+            mtkcompile(sys)
+        else
+            complete(to_explicit_ode(sys))
+        end
         if tspan === nothing
             add_metadata!(getmetadata(sys, ProblemTypeCtx, nothing), sys)
             # MTK v11 requires symbolic map for initial guess

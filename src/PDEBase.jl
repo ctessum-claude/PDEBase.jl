@@ -10,7 +10,7 @@ using ModelingToolkit: get_unknowns, ProblemTypeCtx, get_ps, get_bcs, get_dvs,
     get_metadata, get_gui_metadata
 
 using Symbolics, SymbolicUtils
-using Symbolics: unwrap, solve_for, expand_derivatives, diff2term, setname, rename, variable
+using Symbolics: unwrap, solve_for, expand_derivatives, diff2term, setname, rename, variable, hasnode
 using SymbolicUtils: operation, arguments, Chain, Prewalk, Postwalk, maketerm, metadata,
     symtype, operation, iscall, arguments, getmetadata, unwrap_const, substitute
 using SymbolicIndexingInterface: is_time_dependent
