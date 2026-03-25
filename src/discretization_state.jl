@@ -113,14 +113,40 @@ function to_explicit_ode(sys)
             push!(ode_eqs, eq)
         else
             # Algebraic equation: solve for the variable
+            # First try simple form: dv ~ expr or expr ~ dv
+            solved = false
             for dv in dvs
                 dv_uw = unwrap(dv)
-                if Symbolics.hasnode(x -> isequal(x, dv_uw), unwrap(full_expr))
-                    # Simple case: u_k ~ expr or expr ~ u_k
-                    rhs_val = solve_for(eq, dv)
-                    algebraic_subs[dv] = rhs_val
+                if isequal(unwrap(eq.lhs), dv_uw)
+                    # LHS is exactly the variable: dv ~ rhs
+                    algebraic_subs[dv] = eq.rhs
                     push!(algebraic_dvs, dv)
+                    solved = true
                     break
+                elseif isequal(unwrap(eq.rhs), dv_uw)
+                    # RHS is exactly the variable: lhs ~ dv
+                    algebraic_subs[dv] = eq.lhs
+                    push!(algebraic_dvs, dv)
+                    solved = true
+                    break
+                end
+            end
+            # Fall back to solve_for for more complex forms
+            if !solved
+                for dv in dvs
+                    dv_uw = unwrap(dv)
+                    if Symbolics.hasnode(x -> isequal(x, dv_uw), unwrap(full_expr))
+                        try
+                            rhs_val = solve_for(eq, dv)
+                            algebraic_subs[dv] = rhs_val
+                            push!(algebraic_dvs, dv)
+                            solved = true
+                            break
+                        catch
+                            # solve_for failed (nonlinear) — skip this variable
+                            continue
+                        end
+                    end
                 end
             end
         end
