@@ -177,11 +177,14 @@ function to_explicit_ode(sys)
         end
     end
 
+    # Unwrapped set for reliable comparison
+    algebraic_dvs_uw = Set(unwrap(dv) for dv in algebraic_dvs)
+
     # Rearrange ODE equations to explicit form: D(u_k) ~ rhs
     explicit_eqs = map(ode_eqs) do eq
         full_expr = eq.lhs - eq.rhs
         for dv in dvs
-            dv in algebraic_dvs && continue
+            unwrap(dv) in algebraic_dvs_uw && continue
             D_dv = D(dv)
             D_dv_uw = unwrap(D_dv)
             if Symbolics.hasnode(x -> isequal(x, D_dv_uw), unwrap(full_expr))
@@ -193,7 +196,7 @@ function to_explicit_ode(sys)
     end
 
     # Remove algebraic variables from unknowns
-    remaining_dvs = filter(dv -> !(dv in algebraic_dvs), dvs)
+    remaining_dvs = filter(dv -> !(unwrap(dv) in algebraic_dvs_uw), dvs)
 
     # Create observed equations for eliminated algebraic variables so they
     # remain evaluable (e.g., boundary variables u[1] = 0.0)
