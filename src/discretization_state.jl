@@ -147,6 +147,10 @@ function to_explicit_ode(sys)
     # Remove algebraic variables from unknowns
     remaining_dvs = filter(dv -> !(dv in algebraic_dvs), dvs)
 
+    # Create observed equations for eliminated algebraic variables so they
+    # remain evaluable (e.g., boundary variables u[1] = 0.0)
+    obs_eqs = Equation[dv ~ algebraic_subs[dv] for dv in algebraic_dvs]
+
     # Reconstruct system preserving metadata
     ps = ModelingToolkit.parameters(sys)
     ic = ModelingToolkit.initial_conditions(sys)
@@ -155,6 +159,7 @@ function to_explicit_ode(sys)
     meta = mol_metadata !== nothing ? [ProblemTypeCtx => mol_metadata] : nothing
 
     return System(explicit_eqs, t, remaining_dvs, ps;
+                  observed=obs_eqs,
                   initial_conditions=ic, name=name, metadata=meta, checks=false)
 end
 
@@ -184,6 +189,13 @@ function SciMLBase.discretize(
             add_metadata!(mol_metadata, sys)
             # Get u0 from metadata (stored there for MTK v11 compatibility)
             u0 = hasproperty(mol_metadata, :u0) ? mol_metadata.u0 : []
+            # When using complete() instead of mtkcompile(), algebraic variables
+            # (boundary conditions) have been removed from the system. Filter u0
+            # to only include variables that are still unknowns.
+            if !simplify
+                reduced_dvs = Set(unwrap.(ModelingToolkit.unknowns(simpsys)))
+                u0 = filter(p -> unwrap(first(p)) in reduced_dvs, u0)
+            end
             # Get parameter values from the original pdesys initial_conditions
             # MTK v11 needs parameter values passed explicitly when creating ODEProblem
             pdesys_ic = mol_metadata.pdesys.initial_conditions
