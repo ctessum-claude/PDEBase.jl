@@ -69,11 +69,11 @@ end
 function SciMLBase.discretize(
         pdesys::PDESystem,
         discretization::AbstractEquationSystemDiscretization;
-        analytic = nothing, checks=true, kwargs...
+        analytic = nothing, checks=true, simplify=true, kwargs...
     )
     sys, tspan = SciMLBase.symbolic_discretize(pdesys, discretization; checks=checks)
     return try
-        simpsys = mtkcompile(sys)
+        simpsys = simplify ? mtkcompile(sys) : complete(sys)
         if tspan === nothing
             add_metadata!(getmetadata(sys, ProblemTypeCtx, nothing), sys)
             # MTK v11 requires symbolic map for initial guess
@@ -119,12 +119,14 @@ function SciMLBase.discretize(
                     op = merge(Dict(u0), param_vals)
                     prob = ODEProblem(
                         simpsys, op, tspan; build_initializeprob = false,
+                        allow_array_eqs = !simplify,
                         discretization.kwargs...,
                         kwargs...
                     )
                 else
                     prob = ODEProblem(
                         simpsys, u0, tspan; build_initializeprob = false,
+                        allow_array_eqs = !simplify,
                         discretization.kwargs...,
                         kwargs...
                     )
