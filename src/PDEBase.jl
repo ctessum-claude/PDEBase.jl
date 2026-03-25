@@ -12,7 +12,8 @@ using ModelingToolkit: get_unknowns, ProblemTypeCtx, get_ps, get_bcs, get_dvs,
 using Symbolics, SymbolicUtils
 using Symbolics: unwrap, solve_for, expand_derivatives, diff2term, setname, rename, variable, hasnode
 using SymbolicUtils: operation, arguments, Chain, Prewalk, Postwalk, maketerm, metadata,
-    symtype, operation, iscall, arguments, getmetadata, unwrap_const, substitute
+    symtype, operation, iscall, arguments, getmetadata, unwrap_const, substitute,
+    is_array_shape, shape
 using SymbolicIndexingInterface: is_time_dependent
 using DomainSets
 

@@ -91,6 +91,12 @@ function to_explicit_ode(sys)
     algebraic_subs = Dict{Any,Any}()
     algebraic_dvs = Set{Any}()
     for eq in eqs
+        # ArrayOp equations are already in explicit ODE form from MethodOfLines
+        lhs_uw = unwrap(eq.lhs)
+        if SymbolicUtils.is_array_shape(SymbolicUtils.shape(lhs_uw))
+            push!(ode_eqs, eq)
+            continue
+        end
         full_expr = eq.lhs - eq.rhs
         # Check if this equation has a time derivative
         has_deriv = false
