@@ -152,8 +152,24 @@ function to_explicit_ode(sys)
         end
     end
 
-    # Substitute algebraic variables into ODE equations
+    # Iteratively substitute algebraic variables into each other until fully resolved.
+    # Algebraic variables can form chains: R ~ f(ε), ε ~ g(Qig), Qig ~ h(...)
+    # We need to substitute until no algebraic variables remain in the RHS.
     if !isempty(algebraic_subs)
+        max_iters = length(algebraic_subs) + 1
+        for iter in 1:max_iters
+            changed = false
+            for (dv, rhs) in algebraic_subs
+                new_rhs = Symbolics.substitute(rhs, algebraic_subs)
+                if !isequal(unwrap(new_rhs), unwrap(rhs))
+                    algebraic_subs[dv] = new_rhs
+                    changed = true
+                end
+            end
+            changed || break
+        end
+
+        # Substitute into ODE equations
         ode_eqs = map(ode_eqs) do eq
             lhs = Symbolics.substitute(eq.lhs, algebraic_subs)
             rhs = Symbolics.substitute(eq.rhs, algebraic_subs)
