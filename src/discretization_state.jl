@@ -86,6 +86,14 @@ function to_explicit_ode(sys)
     t = ModelingToolkit.get_iv(sys)
     D = Differential(t)
 
+    # Build a fast lookup set for dvs (by unwrapped identity)
+    dvs_uw_set = Set(unwrap(dv) for dv in dvs)
+    # Also build a Dict for fast matching: unwrapped dv → original dv
+    dvs_uw_to_orig = Dict{Any,Any}(unwrap(dv) => dv for dv in dvs)
+
+    # Build a set of D(dv) for fast derivative detection
+    D_dvs_set = Set(unwrap(D(dv)) for dv in dvs)
+
     # Classify equations: ODE vs algebraic
     ode_eqs = Equation[]
     algebraic_subs = Dict{Any,Any}()
@@ -97,59 +105,58 @@ function to_explicit_ode(sys)
             push!(ode_eqs, eq)
             continue
         end
-        full_expr = eq.lhs - eq.rhs
+
         # Check if this equation has a time derivative
-        has_deriv = false
-        deriv_var = nothing
-        for dv in dvs
-            D_dv = unwrap(D(dv))
-            if Symbolics.hasnode(x -> isequal(x, D_dv), unwrap(full_expr))
-                has_deriv = true
-                deriv_var = dv
-                break
-            end
-        end
+        has_deriv = Symbolics.hasnode(x -> x in D_dvs_set, unwrap(eq.lhs - eq.rhs))
         if has_deriv
             push!(ode_eqs, eq)
-        else
-            # Algebraic equation: solve for the variable
-            # First try simple form: dv ~ expr or expr ~ dv
-            solved = false
+            continue
+        end
+
+        # Algebraic equation: check if LHS or RHS is exactly a dv
+        rhs_uw = unwrap(eq.rhs)
+        if lhs_uw in dvs_uw_set
+            dv = dvs_uw_to_orig[lhs_uw]
+            algebraic_subs[dv] = eq.rhs
+            push!(algebraic_dvs, dv)
+        elseif rhs_uw in dvs_uw_set
+            dv = dvs_uw_to_orig[rhs_uw]
+            algebraic_subs[dv] = eq.lhs
+            push!(algebraic_dvs, dv)
+        elseif Symbolics._iszero(rhs_uw)
+            # Form: expr ~ 0 — try to find a dv in expr and solve
+            found = false
             for dv in dvs
                 dv_uw = unwrap(dv)
-                if isequal(unwrap(eq.lhs), dv_uw)
-                    # LHS is exactly the variable: dv ~ rhs
-                    algebraic_subs[dv] = eq.rhs
-                    push!(algebraic_dvs, dv)
-                    solved = true
-                    break
-                elseif isequal(unwrap(eq.rhs), dv_uw)
-                    # RHS is exactly the variable: lhs ~ dv
-                    algebraic_subs[dv] = eq.lhs
-                    push!(algebraic_dvs, dv)
-                    solved = true
-                    break
+                dv_uw in algebraic_dvs && continue
+                if Symbolics.hasnode(x -> isequal(x, dv_uw), lhs_uw)
+                    try
+                        rhs_val = solve_for(eq.lhs ~ 0, dv)
+                        algebraic_subs[dv] = rhs_val
+                        push!(algebraic_dvs, dv)
+                        found = true
+                        break
+                    catch; continue; end
                 end
             end
-            # Fall back to solve_for for more complex forms
-            if !solved
-                for dv in dvs
-                    dv_uw = unwrap(dv)
-                    if Symbolics.hasnode(x -> isequal(x, dv_uw), unwrap(full_expr))
-                        try
-                            rhs_val = solve_for(eq, dv)
-                            algebraic_subs[dv] = rhs_val
-                            push!(algebraic_dvs, dv)
-                            solved = true
-                            break
-                        catch
-                            # solve_for failed (nonlinear) — skip this variable
-                            continue
-                        end
-                    end
+        elseif Symbolics._iszero(lhs_uw)
+            # Form: 0 ~ expr
+            found = false
+            for dv in dvs
+                dv_uw = unwrap(dv)
+                dv_uw in algebraic_dvs && continue
+                if Symbolics.hasnode(x -> isequal(x, dv_uw), rhs_uw)
+                    try
+                        rhs_val = solve_for(0 ~ eq.rhs, dv)
+                        algebraic_subs[dv] = rhs_val
+                        push!(algebraic_dvs, dv)
+                        found = true
+                        break
+                    catch; continue; end
                 end
             end
         end
+        # If none of the above matched, the equation is dropped (unsupported form)
     end
 
     # Iteratively substitute algebraic variables into each other until fully resolved.
@@ -196,7 +203,9 @@ function to_explicit_ode(sys)
     end
 
     # Remove algebraic variables from unknowns
+    @info "to_explicit_ode: $(length(ode_eqs)) ODE eqs, $(length(algebraic_dvs)) algebraic vars, $(length(dvs)) total dvs"
     remaining_dvs = filter(dv -> !(unwrap(dv) in algebraic_dvs_uw), dvs)
+    @info "to_explicit_ode: $(length(remaining_dvs)) remaining dvs after filter"
 
     # Create observed equations for eliminated algebraic variables so they
     # remain evaluable (e.g., boundary variables u[1] = 0.0)
