@@ -204,9 +204,9 @@ function to_explicit_ode(sys)
             D_dv = Symbolics.wrap(D_term)
             try
                 rhs_val = solve_for(full_expr ~ 0, D_dv)
-                return D_dv ~ -rhs_val
+                return D_dv ~ rhs_val
             catch
-                # Manual rearrangement: D(dv) = -(full_expr - D(dv))
+                # Manual rearrangement: full_expr = D(dv) + f(u) = 0 => D(dv) = -f(u)
                 remainder = Symbolics.substitute(full_expr, Dict(D_dv => 0))
                 return D_dv ~ -remainder
             end
