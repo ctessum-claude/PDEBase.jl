@@ -190,13 +190,25 @@ function to_explicit_ode(sys)
     # Rearrange ODE equations to explicit form: D(u_k) ~ rhs
     explicit_eqs = map(ode_eqs) do eq
         full_expr = eq.lhs - eq.rhs
-        for dv in dvs
-            unwrap(dv) in algebraic_dvs_uw && continue
-            D_dv = D(dv)
-            D_dv_uw = unwrap(D_dv)
-            if Symbolics.hasnode(x -> isequal(x, D_dv_uw), unwrap(full_expr))
+        # Find the Differential term in the expression
+        D_term = nothing
+        Symbolics.hasnode(unwrap(full_expr)) do x
+            if x isa SymbolicUtils.BasicSymbolic && SymbolicUtils.iscall(x) &&
+               SymbolicUtils.operation(x) isa Differential
+                D_term = x
+                return true
+            end
+            return false
+        end
+        if D_term !== nothing
+            D_dv = Symbolics.wrap(D_term)
+            try
                 rhs_val = solve_for(full_expr ~ 0, D_dv)
                 return D_dv ~ -rhs_val
+            catch
+                # Manual rearrangement: D(dv) = -(full_expr - D(dv))
+                remainder = Symbolics.substitute(full_expr, Dict(D_dv => 0))
+                return D_dv ~ -remainder
             end
         end
         return eq  # fallback: return as-is
