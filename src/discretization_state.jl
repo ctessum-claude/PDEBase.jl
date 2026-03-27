@@ -86,6 +86,18 @@ function to_explicit_ode(sys)
     t = ModelingToolkit.get_iv(sys)
     D = Differential(t)
 
+    # Flatten any ArrayOp equations into scalar equations so we can
+    # process them uniformly. ArrayOp equations speed up symbolic_discretize
+    # but to_explicit_ode needs scalar equations for substitution/rearrangement.
+    has_arrayop = any(eqs) do eq
+        lhs_uw = unwrap(eq.lhs); rhs_uw = unwrap(eq.rhs)
+        SymbolicUtils.is_array_shape(SymbolicUtils.shape(lhs_uw)) ||
+        SymbolicUtils.is_array_shape(SymbolicUtils.shape(rhs_uw))
+    end
+    if has_arrayop
+        eqs = ModelingToolkit.ModelingToolkitBase.flatten_equations(eqs)
+    end
+
     # Build a fast lookup set for dvs (by unwrapped identity)
     dvs_uw_set = Set(unwrap(dv) for dv in dvs)
     # Also build a Dict for fast matching: unwrapped dv → original dv
@@ -99,14 +111,6 @@ function to_explicit_ode(sys)
     algebraic_subs = Dict{Any,Any}()
     algebraic_dvs = Set{Any}()
     for eq in eqs
-        # ArrayOp equations are already in explicit form from MethodOfLines
-        lhs_uw = unwrap(eq.lhs)
-        rhs_uw = unwrap(eq.rhs)
-        if SymbolicUtils.is_array_shape(SymbolicUtils.shape(lhs_uw)) ||
-           SymbolicUtils.is_array_shape(SymbolicUtils.shape(rhs_uw))
-            push!(ode_eqs, eq)
-            continue
-        end
 
         # Check if this equation has a time derivative
         has_deriv = Symbolics.hasnode(x -> x in D_dvs_set, unwrap(eq.lhs - eq.rhs))
@@ -178,13 +182,8 @@ function to_explicit_ode(sys)
             changed || break
         end
 
-        # Substitute into ODE equations (skip ArrayOp equations)
+        # Substitute into ODE equations
         ode_eqs = map(ode_eqs) do eq
-            lhs_uw = unwrap(eq.lhs); rhs_uw = unwrap(eq.rhs)
-            if SymbolicUtils.is_array_shape(SymbolicUtils.shape(lhs_uw)) ||
-               SymbolicUtils.is_array_shape(SymbolicUtils.shape(rhs_uw))
-                return eq  # ArrayOp equations pass through unchanged
-            end
             lhs = Symbolics.substitute(eq.lhs, algebraic_subs)
             rhs = Symbolics.substitute(eq.rhs, algebraic_subs)
             lhs ~ rhs
@@ -196,13 +195,6 @@ function to_explicit_ode(sys)
 
     # Rearrange ODE equations to explicit form: D(u_k) ~ rhs
     explicit_eqs = map(ode_eqs) do eq
-        # Skip ArrayOp equations — they're already in explicit form
-        lhs_uw = unwrap(eq.lhs)
-        rhs_uw = unwrap(eq.rhs)
-        if SymbolicUtils.is_array_shape(SymbolicUtils.shape(lhs_uw)) ||
-           SymbolicUtils.is_array_shape(SymbolicUtils.shape(rhs_uw))
-            return eq
-        end
         full_expr = eq.lhs - eq.rhs
         # Find the Differential term in the expression
         D_term = nothing
